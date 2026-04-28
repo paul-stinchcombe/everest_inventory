@@ -24,6 +24,8 @@ export class ReserveItemUseCase {
 	) {}
 
 	async execute(itemId: string, userId: string) {
+		// All operations for this item are serialized to guarantee
+		// linearizable consistency and prevent overselling
 		return this.lock.execute(itemId, async () => {
 			const now = this.clock.now();
 			const reservations = this.projection.getByItem(itemId);
@@ -43,6 +45,8 @@ export class ReserveItemUseCase {
 			const active = reservations.filter((r) => r.status === ReservationStatus.ACTIVE);
 
 			// Availability counts confirmed purchases and currently active holds.
+			// Availability must account for active reservations to prevent
+			// temporary over-allocation under concurrent requests
 			const available = this.inventory.total - this.inventory.confirmed - active.length;
 
 			if (available <= 0) throw new Error('Out of stock');

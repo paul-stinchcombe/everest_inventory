@@ -14,12 +14,17 @@ import { ReserveItemUseCase } from './use-cases';
 import { ExpiryWorker } from './workers';
 import { exit } from 'node:process';
 
+async function runLoadTest(reserve: ReserveItemUseCase) {
+	return Promise.allSettled(Array.from({ length: 500 }).map((_, i) => reserve.execute('item-1', 'user-' + i)));
+}
+
 async function simulate() {
 	const store = new InMemoryEventStore();
 	const projection = new ReservationProjection();
 	const lock = new LockManager();
 	const clock = new SystemClock();
 
+	// Initialize inventory with stock = 1 (high-contention scenario)
 	const inventory = new Inventory('item-1', 1);
 
 	const reserve = new ReserveItemUseCase(store, projection, inventory, lock, clock);
@@ -27,17 +32,38 @@ async function simulate() {
 	const worker = new ExpiryWorker(projection, store, lock, clock);
 	worker.start();
 
-	const results = await Promise.allSettled(Array.from({ length: 500 }).map((_, i) => reserve.execute('item-1', 'user-' + i)));
+	const start = Date.now();
 
-	const success = results.filter((r) => r.status === 'fulfilled').length;
-	const failure = results.length - success;
+	try {
+		const results = await runLoadTest(reserve);
 
-	console.log('Success:', success);
-	console.log('Failure:', failure);
-	console.log('Total Events Stored:', store.getAll().length);
+		const duration = Date.now() - start;
+
+		const success = results.filter((r) => r.status === 'fulfilled').length;
+		const failure = results.length - success;
+
+		console.log('Success:', success);
+		console.log('Failure:', failure);
+		console.log('Duration (ms):', duration);
+		console.log('Total Events Stored:', store.getAll().length, '(expected ~1-3)');
+
+		// invariant: only one reservation should succeed
+		if (success !== 1) {
+			throw new Error('Invariant violated: overselling occurred');
+		}
+
+		console.log('✅ Invariant satisfied: no overselling');
+		console.log('Winning reservation count should be exactly 1');
+	} finally {
+		worker.stop();
+	}
 }
 
-void simulate().then(() => {
-	console.log('\n\nDone\n\n');
-	exit(0);
-});
+void simulate()
+	.then(() => {
+		console.log('\n\nDone\n\n');
+	})
+	.catch((err) => {
+		console.error(err);
+		exit(1);
+	});

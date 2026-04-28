@@ -20,23 +20,25 @@ export class ConfirmReservationUseCase {
   ) {}
 
   async execute(reservationId: string) {
-    // Read-model lookup is sufficient for this demo; stream replay is not required here.
-    const reservation = this.projection.getAll().find((r) => r.id === reservationId);
-    if (!reservation) throw new Error("Not found");
+		// Read-model lookup is sufficient for this demo; stream replay is not required here.
+		const reservation = this.projection.getAll().find((r) => r.id === reservationId);
+		if (!reservation) throw new Error('Not found');
 
-    await this.lock.execute(reservation.itemId, async () => {
-      const now = this.clock.now();
+		// All operations for this item are serialized to guarantee
+		// linearizable consistency and prevent overselling
+		await this.lock.execute(reservation.itemId, async () => {
+			const now = this.clock.now();
 
-      if (reservation.isExpired(now)) {
-        reservation.expire();
-        this.store.append(reservation.id, reservation.pullEvents());
-        throw new Error("Expired");
-      }
+			if (reservation.isExpired(now)) {
+				reservation.expire();
+				this.store.append(reservation.id, reservation.pullEvents());
+				throw new Error('Expired');
+			}
 
-      reservation.confirm(now);
-      this.store.append(reservation.id, reservation.pullEvents());
+			reservation.confirm(now);
+			this.store.append(reservation.id, reservation.pullEvents());
 
-      this.inventory.confirmed += 1;
-    });
+			this.inventory.confirmed += 1;
+		});
   }
 }
