@@ -135,3 +135,277 @@ Run tests:
 ```bash
 pnpm test
 ```
+
+# Inventory Reservation System (Event-Sourced, Concurrency-Safe)
+
+A TypeScript implementation of a high-contention inventory reservation system designed to **prevent overselling under extreme concurrency**.
+
+---
+
+## Executive Summary
+
+This system guarantees correctness under concurrent access by enforcing **per-item serialized execution** using a keyed mutex.
+
+All state transitions for a given inventory item are executed within this boundary, ensuring:
+
+- No race conditions
+- No overselling
+- Deterministic outcomes under concurrent load
+
+Reservations are implemented using **event-sourced aggregates**, with an in-memory event store and projection for efficient reads.
+
+---
+
+## Why This Design?
+
+Flash-sale systems fail not because of logic, but because of **concurrency violations**.
+
+This design prioritizes:
+
+- **Correctness over throughput** (within a single item boundary)
+- **Explicit consistency guarantees**
+- **Deterministic state transitions**
+
+Instead of relying on eventual consistency or retries, we enforce:
+
+> "All operations on a single item behave as if executed sequentially"
+
+---
+
+## System Invariants
+
+The system guarantees the following at all times:
+
+1. `active reservations + confirmed sales ≤ total inventory`
+2. Only one reservation succeeds when stock = 1
+3. Confirmed reservations are immutable
+4. A user may only have one active reservation per item (idempotency)
+5. Expired reservations do not count toward availability
+
+These invariants are enforced within a per-item critical section.
+
+---
+
+## Consistency Model
+
+The system provides **linearizable consistency per inventory item**.
+
+### Key Idea
+
+All operations for a given `itemId` are serialized:
+
+- Same item → sequential execution
+- Different items → parallel execution
+
+### Mental Model
+
+Each item behaves like a **single-threaded system**.
+
+This eliminates:
+
+- race conditions
+- stale reads
+- double allocation
+
+---
+
+## Event Sourcing Model
+
+Reservations are implemented as **event-sourced aggregates**.
+
+### Domain Events
+
+- `ReservationCreated`
+- `ReservationConfirmed`
+- `ReservationExpired`
+
+### Principles
+
+- State is derived from events (not stored directly)
+- Event store is the source of truth
+- Projection provides fast read access
+
+### Replay Capability
+
+The system can rebuild state by replaying events:
+
+```ts
+function rebuildProjection(events: DomainEvent[]) {
+	events.forEach((event) => projection.apply(event));
+}
+```
+
+This enables:
+
+- deterministic recovery
+- auditability
+- debugging via event history
+
+> Note: Inventory is partially modeled as state for simplicity but can be fully event-sourced.
+
+---
+
+## Architecture Overview
+
+```text
+               ┌───────────────────────┐
+               │   Incoming Requests   │
+               └──────────┬────────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │   Use Cases      │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │  Lock Manager    │  (per itemId)
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │   Aggregates     │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │   Event Store    │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │   Projection     │
+                 └──────────────────┘
+```
+
+---
+
+## Request Flows
+
+### Reserve Flow
+
+1. Acquire lock for `itemId`
+2. Load reservations from projection
+3. Expire stale reservations inline
+4. Check idempotency (same user)
+5. Compute availability
+6. Create reservation aggregate
+7. Emit and persist `ReservationCreated`
+8. Update projection
+
+---
+
+### Confirm Flow
+
+1. Locate reservation
+2. Acquire lock for `itemId`
+3. Re-check expiration
+4. If expired → emit `ReservationExpired`
+5. Else → emit `ReservationConfirmed`
+6. Increment confirmed inventory
+
+---
+
+### Expiry Worker
+
+1. Runs periodically
+2. Groups reservations by `itemId`
+3. Acquires lock per item
+4. Expires stale reservations
+5. Emits `ReservationExpired`
+
+**Important:** Uses same lock boundary as write operations.
+
+---
+
+## Locking Strategy
+
+### Mechanism
+
+- Promise chain per key (`itemId`)
+- FIFO execution
+- Automatic release via `finally`
+
+### Guarantees
+
+- Atomic availability checks
+- No double allocation
+- Safe interaction between reserve, confirm, and expiry
+
+---
+
+## Concurrency Proof (Simulation)
+
+The system simulates **500 concurrent reservation attempts** against:
+
+- Stock = 1
+
+### Expected Outcome
+
+- 1 success
+- 499 failures
+
+### Invariant Assertion
+
+```ts
+if (success !== 1) {
+	throw new Error('Overselling detected');
+}
+```
+
+This demonstrates correctness under extreme contention.
+
+---
+
+## Project Structure
+
+```text
+src/
+  application/        Application boundaries (ports)
+  domain/             Aggregates + events
+  infrastructure/     Event store implementation
+  projections/        Read models
+  services/           Locking + clock
+  use-cases/          Business logic
+  workers/            Background processes
+```
+
+---
+
+## Tradeoffs & Limitations
+
+- In-memory locking prevents horizontal scaling
+- Event store is not persistent
+- Projection rebuild cost grows over time
+- Inventory not fully event-sourced
+
+---
+
+## Future Improvements
+
+- Redis distributed locks
+- Persistent event store (Postgres / Kafka)
+- Snapshotting for projection rebuilds
+- Fully event-sourced inventory
+- Multi-instance simulation
+
+---
+
+## Running the Project
+
+```bash
+pnpm install
+pnpm run dev
+pnpm test
+```
+
+---
+
+## Final Thought
+
+This system is intentionally designed around one principle:
+
+> Correctness under concurrency is enforced, not assumed.
+
+Every critical operation flows through a single consistency boundary,
+ensuring that even under extreme load, the system behaves predictably.
