@@ -1,5 +1,5 @@
 /**
- * Integration-style test for confirming an already-expired reservation.
+ * Integration-style tests for confirmation success and failure paths.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -7,6 +7,9 @@ import {
 	Inventory,
 	ReservationAggregate,
 	ReservationCreated,
+	ReservationExpiredError,
+	ReservationNotConfirmableError,
+	ReservationNotFoundError,
 	ReservationStatus,
 } from '../../src/domain';
 import { InMemoryEventStore } from '../../src/infrastructure';
@@ -15,7 +18,7 @@ import { LockManager } from '../../src/services';
 import { ConfirmReservationUseCase } from '../../src/use-cases';
 
 describe('ConfirmReservationUseCase', () => {
-	it('confirms an active reservation and increments confirmed inventory', async () => {
+	it('should confirm an active reservation and increment confirmed inventory', async () => {
 		const now = 1_000_000;
 		const clock = { now: () => now };
 		const store = new InMemoryEventStore();
@@ -52,7 +55,7 @@ describe('ConfirmReservationUseCase', () => {
 		expect(eventTypes).toContain('ReservationConfirmed');
 	});
 
-	it('throws Not found when reservation is missing', async () => {
+	it('should throw ReservationNotFoundError when the reservation id does not exist', async () => {
 		const now = 1_000_000;
 		const clock = { now: () => now };
 		const store = new InMemoryEventStore();
@@ -68,10 +71,12 @@ describe('ConfirmReservationUseCase', () => {
 			clock
 		);
 
-		await expect(confirmReservation.execute('missing-id')).rejects.toThrow('Not found');
+		await expect(confirmReservation.execute('missing-id')).rejects.toBeInstanceOf(
+			ReservationNotFoundError
+		);
 	});
 
-	it('does not increment inventory or emit events on second confirm attempt', async () => {
+	it('should not increment inventory or append events on a second confirmation of the same reservation', async () => {
 		const now = 1_000_000;
 		const clock = { now: () => now };
 		const store = new InMemoryEventStore();
@@ -101,12 +106,14 @@ describe('ConfirmReservationUseCase', () => {
 		await confirmReservation.execute(reservation.id);
 		const eventCountAfterFirstConfirm = store.getAll().length;
 
-		await expect(confirmReservation.execute(reservation.id)).rejects.toThrow('Cannot confirm');
+		await expect(confirmReservation.execute(reservation.id)).rejects.toBeInstanceOf(
+			ReservationNotConfirmableError
+		);
 		expect(inventory.confirmed).toBe(1);
 		expect(store.getAll()).toHaveLength(eventCountAfterFirstConfirm);
 	});
 
-	it('marks reservation as expired and throws when confirmation is too late', async () => {
+	it('should reject confirmation when the reservation has expired and persist ReservationExpired', async () => {
 		const now = 1_000_000;
 		const clock = { now: () => now };
 		const store = new InMemoryEventStore();
@@ -133,8 +140,8 @@ describe('ConfirmReservationUseCase', () => {
 			clock
 		);
 
-		await expect(confirmReservation.execute(reservation.id)).rejects.toThrow(
-			'Expired'
+		await expect(confirmReservation.execute(reservation.id)).rejects.toBeInstanceOf(
+			ReservationExpiredError
 		);
 		expect(inventory.confirmed).toBe(0);
 

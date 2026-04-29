@@ -16,6 +16,7 @@
  */
 import crypto from 'crypto';
 
+import { ReservationExpiredError, ReservationNotConfirmableError } from './errors';
 import { DomainEvent, ReservationConfirmed, ReservationCreated, ReservationExpired } from './events';
 import { ReservationStatus } from './reservation-status';
 
@@ -40,9 +41,11 @@ export class ReservationAggregate {
 	}
 
 	confirm(now: number) {
-		// Guard invariant: only ACTIVE and non-expired reservations can be confirmed
-		if (this.status !== ReservationStatus.ACTIVE || this.isExpired(now)) {
-			throw new Error('Cannot confirm');
+		if (this.isExpired(now)) {
+			throw new ReservationExpiredError();
+		}
+		if (this.status !== ReservationStatus.ACTIVE) {
+			throw new ReservationNotConfirmableError();
 		}
 
 		const event = new ReservationConfirmed(this.id);

@@ -9,7 +9,13 @@
  *   coherent without introducing an async projection pipeline.
  */
 import { ClockPort, EventStorePort, ReservationReadModelPort } from '../application/ports';
-import { Inventory, ReservationAggregate, ReservationCreated, ReservationStatus } from '../domain';
+import {
+	Inventory,
+	OutOfStockError,
+	ReservationAggregate,
+	ReservationCreated,
+	ReservationStatus,
+} from '../domain';
 import { LockManager } from '../services';
 
 const HOLD_MS = 2000; // shorten for demo
@@ -49,7 +55,7 @@ export class ReserveItemUseCase {
 			// temporary over-allocation under concurrent requests
 			const available = this.inventory.total - this.inventory.confirmed - active.length;
 
-			if (available <= 0) throw new Error('Out of stock');
+			if (available <= 0) throw new OutOfStockError();
 
 			const agg = ReservationAggregate.create(itemId, userId, HOLD_MS, now);
 

@@ -7,7 +7,11 @@
  * - Inventory counter increments only after successful domain confirmation.
  */
 import { ClockPort, EventStorePort, ReservationReadModelPort } from "../application/ports";
-import { Inventory } from "../domain";
+import {
+	Inventory,
+	ReservationExpiredError,
+	ReservationNotFoundError,
+} from "../domain";
 import { LockManager } from "../services";
 
 export class ConfirmReservationUseCase {
@@ -22,7 +26,7 @@ export class ConfirmReservationUseCase {
   async execute(reservationId: string) {
 		// Read-model lookup is sufficient for this demo; stream replay is not required here.
 		const reservation = this.projection.getAll().find((r) => r.id === reservationId);
-		if (!reservation) throw new Error('Not found');
+		if (!reservation) throw new ReservationNotFoundError();
 
 		// All operations for this item are serialized to guarantee
 		// linearizable consistency and prevent overselling
@@ -32,7 +36,7 @@ export class ConfirmReservationUseCase {
 			if (reservation.isExpired(now)) {
 				reservation.expire();
 				this.store.append(reservation.id, reservation.pullEvents());
-				throw new Error('Expired');
+				throw new ReservationExpiredError();
 			}
 
 			reservation.confirm(now);

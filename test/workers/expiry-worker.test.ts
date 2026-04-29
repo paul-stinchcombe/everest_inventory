@@ -1,5 +1,5 @@
 /**
- * Unit tests for worker-based expiry behavior on overdue and non-overdue reservations.
+ * Tests for background expiry sweeps and time-boundary behavior.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -14,7 +14,7 @@ import { LockManager } from '../../src/services';
 import { ExpiryWorker } from '../../src/workers';
 
 describe('ExpiryWorker', () => {
-	it('expires active reservations that are past ttl', async () => {
+	it('should expire active reservations that are past their expiry time', async () => {
 		const now = 1_000_000;
 		const clock = { now: () => now };
 		const store = new InMemoryEventStore();
@@ -45,7 +45,7 @@ describe('ExpiryWorker', () => {
 		expect(eventTypes).toContain('ReservationExpired');
 	});
 
-	it('does not expire active reservations that have not passed ttl', async () => {
+	it('should not expire reservations when current time has not passed expiresAt', async () => {
 		const now = 1_000_000;
 		const clock = { now: () => now };
 		const store = new InMemoryEventStore();
@@ -74,5 +74,28 @@ describe('ExpiryWorker', () => {
 
 		const eventTypes = store.getAll().map((event) => event.type);
 		expect(eventTypes).not.toContain('ReservationExpired');
+	});
+
+	it('should not expire when clock equals expiresAt (exclusive expiry boundary)', async () => {
+		const now = 1_000_000;
+		const clock = { now: () => now };
+		const store = new InMemoryEventStore();
+		const projection = new ReservationProjection();
+		const lock = new LockManager();
+
+		const reservation = ReservationAggregate.create('item-1', 'user-1', 0, now);
+		expect(reservation.expiresAt).toBe(now);
+
+		store.append(reservation.id, reservation.pullEvents());
+		projection.apply(
+			new ReservationCreated(reservation.id, 'item-1', 'user-1', reservation.expiresAt)
+		);
+
+		const worker = new ExpiryWorker(projection, store, lock, clock);
+		await worker.run();
+
+		const updated = projection.getAll().find((r) => r.id === reservation.id);
+		expect(updated?.status).toBe(ReservationStatus.ACTIVE);
+		expect(store.getAll().map((e) => e.type)).not.toContain('ReservationExpired');
 	});
 });

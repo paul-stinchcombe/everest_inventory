@@ -8,7 +8,7 @@ import { ReservationAggregate, ReservationStatus } from '../../src/domain';
 describe('ReservationAggregate expiry', () => {
 	const NOW = 1_000_000;
 
-	it('expires an active reservation and emits ReservationExpired', () => {
+	it('should expire an active reservation and emit ReservationExpired', () => {
 		const reservation = ReservationAggregate.create('item-1', 'user-1', 5000, NOW);
 		reservation.pullEvents();
 
@@ -20,7 +20,7 @@ describe('ReservationAggregate expiry', () => {
 		expect(events[0]?.type).toBe('ReservationExpired');
 	});
 
-	it('does not emit events when expire is called on a confirmed reservation', () => {
+	it('should not emit events when expire is called on a confirmed reservation', () => {
 		const reservation = ReservationAggregate.create('item-1', 'user-1', 5000, NOW);
 		reservation.pullEvents();
 
