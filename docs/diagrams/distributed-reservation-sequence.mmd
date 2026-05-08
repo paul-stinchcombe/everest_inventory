@@ -1,0 +1,22 @@
+sequenceDiagram
+  participant Client as Client
+  participant Api as ApiNode
+  participant Cmd as KafkaCommands
+  participant Worker as CommandWorker
+  participant Store as EventStore
+  participant Outbox as EventPublisher
+  participant Proj as ProjectionWorker
+  participant ReadDb as ReadModelDB
+
+  Client->>Api: POST reserve(itemId,userId,idempotencyKey)
+  Api->>Cmd: Produce ReserveCommand key=itemId
+  Cmd->>Worker: Deliver command from partition
+  Worker->>Store: Load current version and state
+  Worker->>Store: Append ReservationCreated with expectedVersion
+  Store-->>Worker: Commit success and new version
+  Worker->>Outbox: Publish ReservationCreated
+  Outbox->>Proj: Deliver domain event
+  Proj->>ReadDb: Upsert reservation projection
+  Api->>ReadDb: Read by idempotencyKey or reservationId
+  ReadDb-->>Api: Current reservation state
+  Api-->>Client: 200 with reservation payload

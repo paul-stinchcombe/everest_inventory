@@ -1,0 +1,14 @@
+flowchart LR
+  client["Clients"] --> api["Stateless API Nodes"]
+  api --> cmdTopic["Kafka Topic reservation.commands"]
+  cmdTopic --> shardWorkers["Command Workers ConsumerGroup by itemId"]
+  shardWorkers --> eventDb["EventStore durable append only"]
+  eventDb --> eventTopic["Kafka Topic reservation.events"]
+  eventTopic --> projector["Projection Workers ConsumerGroup"]
+  projector --> readDb["ReadModel DB"]
+  api --> readDb
+  eventTopic --> expirySvc["Expiry Service shard aware"]
+  expirySvc --> eventDb
+  dlqTopic["Kafka Topic reservation.dlq"] --> ops["Ops Runbooks and Replay Tools"]
+  shardWorkers --> dlqTopic
+  projector --> dlqTopic

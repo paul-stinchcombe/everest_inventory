@@ -1,0 +1,6 @@
+stateDiagram-v2
+  [*] --> ACTIVE
+  ACTIVE --> CONFIRMED: confirm before expiresAt
+  ACTIVE --> EXPIRED: expire when now greaterThan expiresAt
+  CONFIRMED --> [*]
+  EXPIRED --> [*]

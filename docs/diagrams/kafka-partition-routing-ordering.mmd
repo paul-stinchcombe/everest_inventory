@@ -1,0 +1,15 @@
+flowchart LR
+  apiNode["API Node"] --> cmdTopic["reservation.commands"]
+  cmdTopic --> p0["Partition0"]
+  cmdTopic --> p1["Partition1"]
+  cmdTopic --> p2["Partition2"]
+  keyA["itemId=itemA"] --> p0
+  keyB["itemId=itemB"] --> p1
+  keyC["itemId=itemC"] --> p2
+  p0 --> workerA["WorkerInstanceA"]
+  p1 --> workerB["WorkerInstanceB"]
+  p2 --> workerC["WorkerInstanceC"]
+  workerA --> eventStore["Durable EventStore expectedVersion append"]
+  workerB --> eventStore
+  workerC --> eventStore
+  eventStore --> eventTopic["reservation.events"]

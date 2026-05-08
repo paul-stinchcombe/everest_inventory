@@ -1,0 +1,16 @@
+flowchart TD
+  clientReq["Client Request"] --> reserveApi["ReserveItemUseCase.execute(itemId,userId)"]
+  clientReq --> confirmApi["ConfirmReservationUseCase.execute(reservationId)"]
+  reserveApi --> itemLock["LockManager key=itemId"]
+  confirmApi --> itemLock
+  itemLock --> projectionRead["ReservationProjection getByItem/getByUser"]
+  projectionRead --> inlineExpire["Inline expire stale ACTIVE holds"]
+  inlineExpire --> availabilityCalc["Compute available=total-confirmed-active"]
+  availabilityCalc --> createEvent["Create ReservationCreated"]
+  createEvent --> eventStore["InMemoryEventStore append(streamId,events)"]
+  eventStore --> projectionApply["ReservationProjection apply(event)"]
+  confirmApi --> confirmCheck["Check exists and not expired"]
+  confirmCheck --> confirmEvent["Append ReservationConfirmed or ReservationExpired"]
+  confirmEvent --> inventoryCounter["Inventory.confirmed++ on successful confirm"]
+  workerTimer["ExpiryWorker interval sweep"] --> workerLock["LockManager key=itemId"]
+  workerLock --> workerExpire["Expire overdue ACTIVE and append events"]
